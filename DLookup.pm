@@ -8,21 +8,32 @@ Net::DLookup - Perform domain lookups on 2-letter and 3-letter TLDs
 
      use Net::DLookup;
 
-     # Create object and pass domain name to check
-     $domain = new Net::DLookup($domaintocheck);
+     # Initialize Net::DLookup object
+     my $dlu = Net::DLookup -> new;
 
-     # Make sure domain name is valid.
-     @errors = $domain->Net::DLookup::IsValid();
+     # Replace domain definitions from a file
+     $dlu -> LoadTLD($file, 1);
 
-     # Returns availability and registrar information
-     @response = $domain->Net::DLookup::DoWhois(1);
+     # Add domain definitions from a file
+     $dlu -> LoadTLD($file, 0);
+
+     # Check domain name validity and assign it to the object
+     @errors = $dlu -> IsValid($domain);
+
+     # Return availability
+     @response = $dlu -> DoWhois(0);
+
+     # Return availability and registrar information
+     @response = $dlu -> DoWhois(1);
+
 
 =head1 DESCRIPTION
 
-Net::DLookup performs domain lookups for 2-letter and 3-letter top level domains.  It also verifies the validity of
+Net::DLookup performs domain lookups for 2-letter and 3-letter top level domains.  It also verifies the validity of 
 domain names by checking punctuation, length, metacharacters, etc..
 
-Information for 410 currently recognized top level domains is included within the module.
+Information for currently recognized top level domains is included within the module. This list may be replaced or 
+added to by calling $dlu->LoadTLD().
 
 With the advent of new registrars for 3-letter top level domains, it's become difficult to get the 
 whois output from a single domain lookup, unless you know what registration agency to look at.  Net::DLookup solves
@@ -34,17 +45,20 @@ for full whois output.
 
 These functions must be used in order:
 
-
 Of course:
 
      use Net::DLookup;
 
-Pass domain name to check ($domaintocheck).  This must be the full domain name, such as yourdomain.com.
+Create an object that contains the default top level domains.
 
-     $domain = new Net::DLookup($domaintocheck);
+     my $dlu = Net::DLookup -> new;
 
-The next step before performing the whois lookup is to make sure that the domain is a valid one.  It checks for the
-following possible errors:
+Validate domain name ($domaintocheck) and associate it with the object.
+This must be the full domain name, such as yourdomain.com.
+
+     my @errors = $dlu -> IsValid($domaintocheck);
+
+It checks for the following possible errors:
 
 =over 4
 
@@ -68,16 +82,19 @@ following possible errors:
 
 @errors will contain a list of all possible errors that the domain name may have, such as:
 
-Domain name can't start or end with non-alphanumeric character.
-Domains with the .com extension cannot exceed 67 characters.
+=over 4
 
-     @errors = $domain->Net::DLookup::IsValid();
+=item Domain name can't start or end with non-alphanumeric character.
+
+=item Domains with the .com extension cannot exceed 67 characters.
+
+=back
 
 Last, the domain lookup.  
 
-The @response array will contain the following information (in order):
+     @response = $domain->Net::DLookup::DoWhois();
 
-=over 4
+=over 4 @response will contain (in order)
 
 =item Is domain registered?   1 for yes; 0 for no
 
@@ -102,24 +119,27 @@ plain Jane, uninformative whois information.
 
 =cut
 
-$VERSION = '1.00';
 
 =head1 RESTRICTIONS
 
-Net::DLookups requires that the Sockets (included with the Perl distribution) module is installed.
+Net::DLookup requires that the Sockets (included with the Perl distribution) module is installed.
 
 =head1 VERSION
 
-Net::DLookup Version 1.00  2/17/2000
+Net::DLookup Version 1.01  6/10/2000
 
 =head1 CAVEATS
 
 Registration agencies are finicky beasts.  They may change their whois server, urls, or responses (that this module
-relies on) without notice.  As of 2/17/2000, the agency data in the module is accurate.
+relies on) without notice.  As of 6/10/2000, the agency data in the module is accurate.
+
+=head1 CREDITS
+
+Many thanks goes to Michael Chase for the new LoadTLD() and DumpTLD() routines.
 
 =head1 AUTHOR
 
-D. Jasmine Merced  <djasmine@tnsgroup.com>
+D. Jasmine Merced  <djasmine@tnsgroup.com>, CPAN ID: DJASMINE
 
 The Perl Archive  <http://www.perlarchive.com>
 
@@ -132,42 +152,108 @@ If you make modifications, the author would like to know so that they can be inc
 
 
 use strict;
+use vars qw( $VERSION %_tld_data );
+$VERSION = '1.01';
+
 use Exporter;
+my @ISA = qw( Exporter );
 
-my ($MAX2TLD,$MAX3TLD,@ERRORS)=(26,67);
-
-
-my @EXPORT = qw(IsValid DoWhois);
+# Initialize class level data
+my ( $MAX2TLD, $MAX3TLD, @ERRORS ) = ( 26, 67 );
 
 sub new {
-	my ($class) = ref($_[0])||$_[0];
-	bless {
-		_FULLDOMAIN	=>	$_[1],
-		_NAME		=>	undef,
-		_TLD		=>	undef,
+    my $class = ref $_[0] || $_[0];
 
-		_ISVALID	=>	undef,
-		_RESPONSE	=>	undef,
-		_WHOISOUTPUT	=>	undef,
-		_ISREGISTERED	=>	undef,
+    my $dlu = bless {
+	_TLD_DATA      	=>	undef,
 
-		_TLDNAME	=>	undef,
-		_TLDURL		=>	undef,
-		_TLDMATCHRESP	=>	undef,
-		_TLDQUERYDB	=>	undef,
+	_FULLDOMAIN	=>	$_[1],
+	_NAME		=>	undef,
+	_TLD		=>	undef,
+	_NATION		=>	undef,
 
-		ERROR		=>	undef,
+	_ISVALID	=>	undef,
+	_RESPONSE	=>	undef,
+	_WHOISOUTPUT	=>	undef,
+	_ISREGISTERED	=>	undef,
 
-	}, $class;
+	_TLDNAME	=>	undef,
+	_TLDURL		=>	undef,
+	_TLDMATCHRESP	=>	undef,
+	_TLDQUERYDB	=>	undef,
+
+	ERROR		=>	undef,
+
+    }, $class;
+
+    $dlu -> LoadTLD( $_[1], 1 );
+    return $dlu;
 }
 
+sub LoadTLD {
+	my ( $dlu, $file, $clear ) = @_;
+	my $oldfile = '';
+	my ( $TLD, $URL, $QUERYDB, $MATCHRESP, $NAME );
+
+	$dlu -> {_TLD_DATA} = {} if $clear || ! $dlu -> {_TLD_DATA};
+
+	if ( $file ) {
+		if ( ! ref $file ) {
+			open( FILE, "<$file" ) or die "Can't read from $file, $!";
+			$oldfile = $file;
+			$file = \*FILE;
+		}
+		while ( <$file> ) {
+			s/\s+$//;
+			next if '' eq $_ || /^\s*#/;
+			( $TLD, $URL, $QUERYDB, $MATCHRESP, $NAME ) = split(/\t/,$_);
+			foreach ( $TLD, $URL, $QUERYDB, $MATCHRESP, $NAME ) {
+				$_ = '' if ! defined $_;
+			}
+			${$dlu -> {_TLD_DATA}}{$TLD} = [ $URL, $QUERYDB, $MATCHRESP, $NAME ]; 
+		}
+		close $file if $oldfile;
+	}
+	if ( ! keys %{$dlu -> {_TLD_DATA}} ) {
+		my $start = tell DATA;
+		$dlu -> LoadTLD( \*DATA, 1 );
+		seek DATA, $start, 0;
+	}
+}
+
+sub DumpTLD {
+	my ( $dlu, $file ) = @_;
+	return if ! $file || ! $dlu -> {_TLD_DATA};
+	my ( $oldfile, $TLD, $line, @dom );
+
+	if ( ! ref $file ) {
+		open( FILE, ">$file" ) or die "Can't write to $file, $!";
+		$oldfile = $file;
+		$file = \*FILE;
+	}
+	foreach $TLD (
+		# Sort domains by most general part first
+		map { @dom = split /\t/, $_; join ".",  reverse @dom }
+		sort
+		map { @dom = split /\./, $_; join "\t", reverse @dom }
+		keys %{$dlu -> {_TLD_DATA}} 
+	){
+		$line = join "\t", $TLD, @{$dlu -> {_TLD_DATA}{$TLD}};
+		$line =~ s/\s+$//;
+		print $file "$line\n";
+	}
+	close $file if $oldfile;
+}
+
+
 sub IsValid {
-	my $self = shift;
+	my ($self,$domain) = @_;
 	@ERRORS = ();
-	unless ($self->{_FULLDOMAIN}){
+	unless ($domain){
 		push(@ERRORS,"Error.  No domain has been entered.\n");
 	}
 	else {
+		$self->{_FULLDOMAIN} = $domain;
 		my @DOMAIN = ();
 		@DOMAIN = split(/\./,$self->{_FULLDOMAIN});
 		my @REVERSED = reverse @DOMAIN;
@@ -210,53 +296,55 @@ sub DoWhois {
 		_GetRegistrar($self);
 	}
 
-	my @RESULT = _PerformWhois($self);
-	foreach(@RESULT){
-		$self->{_WHOISOUTPUT} .= $_;
-	}
+	if ($self->{_TLDQUERYDB}){
 
-	$self->{_ISREGISTERED} = 1;
-
-	$self->{_RESPONSE} = "$self->{_FULLDOMAIN} is already registered.\n";
-
-	if ($self->{_WHOISOUTPUT} =~ /$self->{_TLDMATCHRESP}/mig){
-		$self->{_ISREGISTERED} = 0;
-		$self->{_RESPONSE} = "$self->{_FULLDOMAIN} is available for registration.";
-	}
-	elsif ($self->{_WHOISOUTPUT} =~ /^\*/mig) {
-		$ATTEMPTS++;
-		sleep(1);
-		if ($ATTEMPTS > $MAXTRIES) {
-			$self->{_RESPONSE} = "Internic's Whois database is unavailable.";
-		}  
-	} 
-	elsif ($self->{_WHOISOUTPUT} =~ /$!/mg) {
-		$self->{_RESPONSE} = "Could not connect to whois server $self->{_TLDQUERYDB}: $!";
-	}
-
-	if (($self->{_ISREGISTERED}==1)&&(length($self->{_TLD})==3)){
-		foreach(@RESULT){
-			chomp;
-			if (/Registrar: /){
-				$self->{_TLDNAME} = (split(/Registrar: /,$_))[1];
-			}
-			if (/Whois Server\: /){
-				$self->{_TLDQUERYDB} = (split(/Whois Server: /,$_))[1];
-			}
-			if (/Referral URL: /){
-				$self->{_TLDURL} = (split(/Referral URL: /,$_))[1];
-			}
-			
-		}
-	}
-	if($INTERNICWHOIS){
-		@RESULT = _PerformWhois($self);
-		if (@RESULT){$self->{_WHOISOUTPUT}=undef;}
+		my (@RESULT) = _PerformWhois($self);
 		foreach(@RESULT){
 			$self->{_WHOISOUTPUT} .= $_;
 		}
+
+		$self->{_ISREGISTERED} = 1;
+
+		$self->{_RESPONSE} = "$self->{_FULLDOMAIN} is already registered.\n";
+
+		if ($self->{_WHOISOUTPUT} =~ /$self->{_TLDMATCHRESP}/mig){
+			$self->{_ISREGISTERED} = 0;
+			$self->{_RESPONSE} = "$self->{_FULLDOMAIN} is available for registration.";
+		}
+		elsif ($self->{_WHOISOUTPUT} =~ /^\*/mig) {
+			$ATTEMPTS++;
+			sleep(1);
+			if ($ATTEMPTS > $MAXTRIES) {
+				$self->{_RESPONSE} = "Internic's Whois database is unavailable.";
+			}  
+		} 
+		elsif ($self->{_RESPONSE} =~ /$!/g) {
+			$self->{_RESPONSE} = "Could not connect to whois server $self->{_TLDQUERYDB}: $!";
+		}
+
+		if (($self->{_ISREGISTERED}==1)&&(length($self->{_TLD})==3)){
+			foreach(@RESULT){
+				chomp;
+				if (/Registrar: /){
+					$self->{_TLDNAME} = (split(/Registrar: /,$_))[1];
+				}
+				if (/Whois Server\: /){
+					$self->{_TLDQUERYDB} = (split(/Whois Server: /,$_))[1];
+				}
+				if (/Referral URL: /){
+					$self->{_TLDURL} = (split(/Referral URL: /,$_))[1];
+				}	
+			}
+		}
+		if($INTERNICWHOIS){
+			@RESULT = _PerformWhois($self);
+			if (@RESULT){$self->{_WHOISOUTPUT}=undef;}
+			foreach(@RESULT){
+				$self->{_WHOISOUTPUT} .= $_;
+			}
+		}
 	}
-	unless($self->{_TLDQUERYDB}){
+	else {
 		$self->{_RESPONSE} = "$self->{_TLD} does not have a whois server to look up. ";
 		$self->{_RESPONSE} .= "More information can be found at $self->{_TLDURL}" if $self->{_TLDURL};
 	}
@@ -267,11 +355,11 @@ sub DoWhois {
 sub _ValidateName {
 	my $self = shift;
 
-	my $tldlength 	= length($self->{_TLD});
-	my $domlength 	= length($self->{_FULLDOMAIN});
-	my $strip_dashes = $self->{_NAME};
-	my $temptest 	= $self->{_TLD};
-	my @tippytoptld = split(/\./,$self->{_TLD});
+	my $tldlength 		= length($self->{_TLD});
+	my $domlength 		= length($self->{_FULLDOMAIN});
+	my $strip_dashes 	= $self->{_NAME};
+	my $temptest 		= $self->{_TLD};
+	my @tippytoptld 	= split(/\./,$self->{_TLD});
 
 	unless($tippytoptld[1]){
 		$tippytoptld[1] = $tippytoptld[0];
@@ -307,45 +395,52 @@ sub _ValidateName {
 
 sub _GetRegistrar {
 	my $self = shift;
-	my ($TLD,$URL,$QUERYDB,$MATCHRESP,$NAME, $start, $ERR) = "";
-	$start = tell DATA;
-	while (<DATA>){
-		chomp;
-		($TLD,$URL,$QUERYDB,$MATCHRESP,$NAME) = split(/\t/,$_);
-		if ($TLD eq lc($self->{_TLD})){
-			$self->{_TLDNAME}	= $NAME;
-			$self->{_TLDURL}	= $URL;
-			$self->{_TLDMATCHRESP}	= $MATCHRESP;
-			$self->{_TLDQUERYDB}	= $QUERYDB;
-			last;
-		}
+
+	$self -> LoadTLD( '', 1 ) if ! keys %{$self -> {_TLD_DATA}};
+
+	my $TLD = '';
+	if    ( exists $self -> {_TLD_DATA}{$self -> {_TLD}} ) {
+		$TLD = $self -> {_TLD};
+	}
+	elsif ( exists $self -> {_NATION} &&
+		exists $self -> {_TLD_DATA}{$self -> {_NATION}} ) {
+		$TLD = $self -> {_NATION};
 	}
 
-	seek DATA, $start, 0;
+	if ( $TLD ) {
+		my ( $URL, $QUERYDB, $MATCHRESP, $NAME ) = @{$self -> {_TLD_DATA}{$TLD}};
+		$self -> {_TLDNAME}		= $NAME;
+		$self -> {_TLDURL}		= $URL;
+		$self -> {_TLDMATCHRESP}	= $MATCHRESP;
+		$self -> {_TLDQUERYDB}		= $QUERYDB;
+	}
 
 	unless ($self->{_TLDNAME}){
-		push(@ERRORS,".$self->{_TLD} is not a valid top level domain.\n");
+		push @ERRORS, ".$self->{_TLD} is not a valid top level domain.\n";
 	}
+
 }
 
 sub _PerformWhois {
 	my $self = shift;
 	my(@RESULT,$SIN,$LEN,$OFFSET,$WRITTEN,$BUFFER) = "";
-
+	return "No whois server for $self->{_TLD}" if ! $self->{_TLDQUERYDB};
+	my ( $whois, $opts ) = ( $self->{_TLDQUERYDB}, '' );
+	( $whois, $opts ) = split /\s+/, $whois, 2 if $whois =~ /\s/;
 	use Socket;
-        socket(SOCK, PF_INET, SOCK_STREAM, (getprotobyname('tcp'))[2]) || return ((""));
+	socket(SOCK, PF_INET, SOCK_STREAM, (getprotobyname('tcp'))[2]) || return ((""));
 
-	$SIN = sockaddr_in(43, inet_aton( $self->{_TLDQUERYDB} ));
+	$SIN = sockaddr_in(43, inet_aton( $whois ));
 	connect(SOCK, $SIN) || return (("$!"));
 	$OFFSET = 0;
-	$BUFFER = $self->{_FULLDOMAIN} . "\r\n";
+	$BUFFER = $self->{_FULLDOMAIN} . "$opts\r\n";
 	$LEN = length($BUFFER);
 	while($LEN) {
 		$WRITTEN = syswrite(SOCK,$BUFFER,$LEN,$OFFSET);
 		$LEN -= $WRITTEN;
 		$OFFSET += $WRITTEN;
 	}
-	
+
 	@RESULT=<SOCK>;
 	close(SOCK);
 	return @RESULT;
@@ -540,6 +635,7 @@ jl.cn	http://www.cnnic.net.cn/indexeng.html	whois.cnnic.cn	No entries	China Regi
 jm				Jamaica
 jo	http://www.nic.gov.jo/			Jordan
 jp	http://www.nic.ad.jp/			Japan
+ad.jp	http://www.nic.ad.jp/	whois.nic.ad.jp	No match	Japan Admin
 js.cn	http://www.cnnic.net.cn/indexeng.html	whois.cnnic.cn	No entries	China Regional
 k12.il	http://www.isoc.org.il/	whois.ripe.net	No entries found	Israel K12
 k12.tr	http://dns.metu.edu.tr/	whois.metu.edu.tr	Not found in database	Turkey K12
@@ -621,7 +717,7 @@ nf.ca	http://www.cdnnet.ca/	whois.cdnnet.ca	Not found	Canada Regional
 ng				Nigeria
 ngo.za	http://www.frd.ac.za/uninet/zadomains.html	whois.co.za	No information available	South Africa Non Govt Org
 ni	http://165.98.1.2/nic-for.html			Nicaragua
-nl	http://www.domain-registry.nl/	domain-registry.nl	not a registered domain	Netherlands
+nl	http://www.domain-registry.nl/	whois.nic.nl	not a registered domain	Netherlands
 nm.cn	http://www.cnnic.net.cn/indexeng.html	whois.cnnic.cn	No entries	China Regional
 nm.kr	http://www.krnic.net/english/index.html	whois.nic.or.kr	is not registered	Korea Nm
 no	http://www.uninett.no/navn/	whois.ripe.net	No entries found	Norway
@@ -765,3 +861,5 @@ zj.cn	http://www.cnnic.net.cn/indexeng.html	whois.cnnic.cn	No entries	China Regi
 zm	http://www.zamnet.zm/			Zambia
 zr	http://www.nic.zr/			Zaire
 zw				Zimbabwe
+
+

@@ -24,14 +24,22 @@ print "Enter complete domain name to check:  ";
 my $domain = <>;
 chomp $domain;
 
-$domain = new Net::DLookup($domain);
-@errors = $domain->IsValid();
+# Initialize Net::DLookup object
+my $dlu = Net::DLookup -> new;
+
+# Replace domain definitions from a file
+# $dlu -> LoadTLD($file, 1);
+# Add domain definitions from a file
+# $dlu -> LoadTLD($file, 0);
+
+# Check domain name validity and assign it to the object
+@errors = $dlu -> IsValid($domain);
 
 if (@errors){
 	print $_,"\n";
 }
 else {
-	my ($registered,$registra,$registraurl,$whoisserver,$whoisoutput,$response,$tld) = $domain->DoWhois(1);
+	my ($registered,$registra,$registraurl,$whoisserver,$whoisoutput,$response,$tld) = $dlu->DoWhois(1);
 	print $response;
 	print "\nRegistrar:\t\t$registra\n\n$whoisoutput\n\n";
 	
